@@ -1,0 +1,20 @@
+{
+  "type": "module",
+  "name": "jsonAPI",
+  "version": "1.0.0",
+  "main": "index.js",
+  "repository": "https://github.com/parasVohra/HW-JSON-API.git",
+  "author": "Pursharth Voha <pursharth.vohra@gmail.com>",
+  "license": "MIT",
+  "scripts": {
+    "test": "jest --watchAll"
+  },
+  "dependencies": {
+    "express": "^4.17.1"
+  },
+  "devDependencies": {
+    "nodemon": "^2.0.15",
+    "jest": "^27.3.1",
+    "supertest": "^6.1.6"
+  }
+}
