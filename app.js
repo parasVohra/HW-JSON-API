@@ -1,114 +1,78 @@
 import express from "express";
+import { isMatch, compareAsc, addDays, format } from "date-fns";
 const app = express();
 
 app.use(express.json());
 
 const tickets = {};
-const flights = {};
-const flightData = {
-    dates: [
-        {
-            date: "2021-11-03",
-            flights: [
-                {
-                    flightNumber: "AC1",
-                    revenue: 300000,
-                    occupiedSeats: ["1A", "10A"],
-                },
-            ],
-        },
-        {
-            date: "2021-11-04",
-            flights: [],
-        },
-        {
-            date: "2021-11-05",
-            flights: [
-                {
-                    flightNumber: "AC2",
-                    revenue: 250000,
-                    occupiedSeats: ["7C", "11A"],
-                },
-                {
-                    flightNumber: "AC10",
-                    revenue: 270000,
-                    occupiedSeats: ["12C", "5A"],
-                },
-            ],
-        },
-    ],
-};
+const flightSeats = {};
+const ticketsByDates = {};
 
 app.post("/api/tickets", (req, res) => {
     try {
         const {
-            event: { ticketId, flightNumber, seatNumber },
+            event: {
+                ticketId,
+                flightNumber,
+                seatNumber,
+                flightDate,
+                ticketCost,
+            },
         } = req.body;
 
-        console.log("tickets: ", tickets);
-        console.log("flights: ", flights);
-
         if (tickets.hasOwnProperty(ticketId)) {
-            throw new Error("ticket");
-        }
-        if (Object.keys(flights).length !== 0) {
-            console.log(flights);
-            const flightSeats = flights[flightNumber];
-            if (flightSeats.hasOwnProperty(seatNumber)) {
-                throw new Error("seat");
-            }
-        }
-        tickets[ticketId] = req.body;
-        const seat = {};
-        seat[seatNumber] = true;
-        if (Object.keys(flights).length !== 0) {
-            const oldSeats = flights[flightNumber];
-            flights[flightNumber] = { ...oldSeats, ...seat };
+            throw new Error("ticketId already exits");
         } else {
-            flights[flightNumber] = { ...seat };
+            tickets[ticketId] = "";
+        }
+
+        if (ticketsByDates.hasOwnProperty(flightDate)) {
+            if (ticketsByDates[flightDate].hasOwnProperty(flightNumber)) {
+                let seat = {};
+                seat[seatNumber] = ticketCost;
+                let oldSeats = flightSeats[flightNumber];
+                ticketsByDates[flightDate][flightNumber] = {
+                    ...oldSeats,
+                    ...seat,
+                };
+            } else {
+                let seat = {};
+                seat[seatNumber] = ticketCost;
+                ticketsByDates[flightDate][`${flightNumber}`] = seat;
+            }
+        } else {
+            let seat = {};
+            seat[seatNumber] = ticketCost;
+            let flightSeatObj = {};
+            flightSeatObj[flightNumber] = seat;
+            ticketsByDates[flightDate] = flightSeatObj;
+        }
+
+        if (flightSeats.hasOwnProperty(flightNumber)) {
+            if (flightSeats[`${flightNumber}`].hasOwnProperty(seatNumber)) {
+                throw new Error("seatNumber already taken");
+            } else {
+                if (flightSeats.hasOwnProperty(flightNumber)) {
+                    let seat = {};
+                    seat[seatNumber] = ticketCost;
+                    const oldSeats = flightSeats[flightNumber];
+                    flightSeats[flightNumber] = { ...oldSeats, ...seat };
+                } else {
+                    let seat = {};
+                    seat[seatNumber] = ticketCost;
+                    flightSeats[flightNumber] = { ...seat };
+                }
+            }
+        } else {
+            let seat = {};
+            seat[seatNumber] = ticketCost;
+            flightSeats[`${flightNumber}`] = seat;
         }
 
         res.status(200).json({ status: "success" });
         res.end();
     } catch (error) {
-        console.log(error.message);
-        if (error.message === "ticket") {
-            res.status(400).json({
-                status: "failed",
-                reason: "ticketId already exits",
-            });
-            res.end();
-        }
-        if (error.message === "seat") {
-            res.status(400).json({
-                status: "failed",
-                reason: "seatNumber already taken",
-            });
-            res.end();
-        }
-    }
-});
-
-app.get("/api/flights", (req, res) => {
-    try {
-        console.log(req.query);
-        if (!req.query.hasOwnProperty("startDate")) {
-            throw new Error("startDate");
-        }
-        if (!req.query.hasOwnProperty("endDate")) {
-            throw new Error("endDate");
-        }
-        res.status(200).send();
-        res.end();
-    } catch (error) {
-        console.log(error.message);
-        let reason = "";
-        if (error.message === "startDate") {
-            reason = "startDate is empty";
-        }
-        if (error.message === "endDate") {
-            reason = "endDate is empty";
-        }
+        let reason = error.message;
         res.status(400).json({
             status: "failed",
             reason,
@@ -116,5 +80,106 @@ app.get("/api/flights", (req, res) => {
         res.end();
     }
 });
+
+app.get("/api/flights", async (req, res) => {
+    try {
+        if (!req.query.hasOwnProperty("startDate")) {
+            throw new Error("startDate is empty");
+        }
+        if (!req.query.hasOwnProperty("endDate")) {
+            throw new Error("endDate is empty");
+        }
+        if (req.query.startDate) {
+            const isValidFormat = isMatch(req.query.startDate, "yyyy-MM-dd");
+            if (!isValidFormat) {
+                throw new Error("startDate format is invalid");
+            }
+        }
+        if (req.query.endDate) {
+            const isValidFormat = isMatch(req.query.endDate, "yyyy-MM-dd");
+            if (!isValidFormat) {
+                throw new Error("endDate format is invalid");
+            }
+        }
+
+        if (req.query.startDate && req.query.endDate) {
+            const isEndDateBigger = compareAsc(
+                new Date(req.query.endDate),
+                new Date(req.query.startDate)
+            );
+            if (isEndDateBigger === -1) {
+                throw new Error("endDate cannot be before startDate");
+            }
+        }
+
+        const flightData = {
+            dates: [],
+        };
+
+        console.log(JSON.stringify(flightSeats, null, 2));
+
+        console.log(JSON.stringify(ticketsByDates, null, 2));
+        const dates = await dateArray(req.query.startDate, req.query.endDate);
+
+        dates.forEach((date) => {
+            if (ticketsByDates.hasOwnProperty(date)) {
+                flightData.dates.push({
+                    date: date,
+                    flights: calculateFlight(date),
+                });
+            } else {
+                flightData.dates.push({
+                    date: date,
+                    flights: [],
+                });
+            }
+        });
+
+        console.log(JSON.stringify(flightData, null, 2));
+
+        res.status(200).json(flightData);
+        res.end();
+    } catch (error) {
+        let reason = error.message;
+        res.status(400).json({
+            status: "failed",
+            reason,
+        });
+        res.end();
+    }
+});
+
+function calculateFlight(date) {
+    const result = [];
+    const flightArray = Object.keys(ticketsByDates[date]);
+    for (let flight of flightArray) {
+        const rev = Object.values(ticketsByDates[date][flight]);
+        const cost = rev.reduce((acc, price) => acc + price);
+        result.push({
+            flightNumber: flight,
+            revenue: cost,
+            occupiedSeats: Object.keys(ticketsByDates[date][flight]),
+        });
+    }
+    return result;
+}
+
+async function dateArray(sDate, eDate) {
+    const startDate = new Date(sDate);
+    const endDate = new Date(eDate);
+    const dateRange = [];
+    dateRange.push(formatDate(startDate));
+
+    let currentDate = startDate;
+    while (currentDate < endDate) {
+        currentDate = addDays(new Date(currentDate), 1);
+        dateRange.push(formatDate(currentDate));
+    }
+    return dateRange;
+}
+
+function formatDate(date) {
+    return format(new Date(addDays(new Date(date), 1)), "yyyy-MM-dd");
+}
 
 export default app;
